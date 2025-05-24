@@ -1,6 +1,7 @@
 package main
 
 import (
+	"github.com/felixge/httpsnoop"
 	"github.com/rs/zerolog"
 	"go.opentelemetry.io/otel/attribute"
 	"go.opentelemetry.io/otel/metric"
@@ -39,16 +40,22 @@ func AccessLog(next http.Handler) http.Handler {
 
 func RequestCounter(next http.Handler) http.Handler {
 	counter := Must(meter.Int64Counter("http_requests_total", metric.WithDescription("Total number of HTTP requests.")))
+	errored := Must(meter.Int64Counter("http_error_total", metric.WithDescription("Total number of HTTP errors.")))
 	active := Must(meter.Int64UpDownCounter("http_active_requests", metric.WithDescription("Number of active HTTP requests.")))
 
 	return http.HandlerFunc(func(w http.ResponseWriter, r *http.Request) {
+		ctx := r.Context()
+
 		attr := metric.WithAttributes(attribute.String("method", r.Method), attribute.String("path", r.URL.Path))
-		counter.Add(r.Context(), 1, attr)
+		counter.Add(ctx, 1, attr)
 
-		active.Add(r.Context(), 1)
-		defer active.Add(r.Context(), -1)
+		active.Add(ctx, 1)
+		defer active.Add(ctx, -1)
 
-		next.ServeHTTP(w, r)
+		metrics := httpsnoop.CaptureMetrics(next, w, r)
+		if metrics.Code < 200 || metrics.Code >= 400 {
+			errored.Add(ctx, 1, attr)
+		}
 	})
 }
 

@@ -20,7 +20,7 @@ func SimulateLatency[T any](ctx context.Context, fn func(context.Context) (T, er
 
 // SimulateError returns random error
 func SimulateError[T any](ctx context.Context, fn func(context.Context) (T, error)) (T, error) {
-	if rand.Float64() < 0.1 {
+	if rand.Float64() < 0.25 {
 		var zero T
 		return zero, fmt.Errorf("simulated error")
 	}

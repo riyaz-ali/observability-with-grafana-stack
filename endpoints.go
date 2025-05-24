@@ -7,6 +7,7 @@ import (
 	"github.com/rs/zerolog"
 	"go.opentelemetry.io/contrib/instrumentation/net/http/otelhttp"
 	"go.opentelemetry.io/otel/codes"
+	"go.opentelemetry.io/otel/metric"
 	"io"
 	"math/rand"
 	"net/http"
@@ -19,6 +20,9 @@ func init() { rand.Seed(time.Now().UnixNano()) }
 func FetchJoke() http.HandlerFunc {
 	// client is an otel instrumented http client
 	var client = &http.Client{Transport: otelhttp.NewTransport(http.DefaultTransport)}
+
+	var jokesFetched = Must(meter.Int64Counter("joke_fetched_total",
+		metric.WithDescription("Total number of dad jokes successfully fetched.")))
 
 	return func(w http.ResponseWriter, r *http.Request) {
 		log := zerolog.Ctx(r.Context())
@@ -48,6 +52,7 @@ func FetchJoke() http.HandlerFunc {
 				return "", fmt.Errorf("failed to read dad joke response body: %w", err)
 			}
 
+			jokesFetched.Add(ctx, 1)
 			return body.String(), nil
 		})
 
