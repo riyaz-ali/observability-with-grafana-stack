@@ -5,9 +5,12 @@ import (
 	"errors"
 	"fmt"
 	"github.com/prometheus/client_golang/prometheus/promhttp"
+	"github.com/rs/zerolog"
+	"github.com/rs/zerolog/hlog"
+	"github.com/rs/zerolog/log"
 	"go.opentelemetry.io/otel"
 	sdktrace "go.opentelemetry.io/otel/sdk/trace"
-	"log"
+	"net"
 	"net/http"
 	"os"
 	"os/signal"
@@ -23,7 +26,14 @@ func HealthEndpoint() http.HandlerFunc {
 }
 
 func main() {
-	defer func() { // cleanup on shutdown
+	ctx, stop := signal.NotifyContext(context.Background(), syscall.SIGKILL, syscall.SIGTERM)
+	defer stop()
+
+	// prepare singleton / global logging service
+	log.Logger = zerolog.New(os.Stdout).Level(zerolog.DebugLevel).With().Timestamp().Ctx(ctx).Logger()
+
+	// cleanup tracing on shutdown
+	defer func() {
 		if tp, ok := otel.GetTracerProvider().(*sdktrace.TracerProvider); ok {
 			if err := tp.Shutdown(context.Background()); err != nil {
 				log.Printf("error shutting down tracer provider: %v", err)
@@ -31,34 +41,30 @@ func main() {
 		}
 	}()
 
+	// shared middlewares
+	logging := partial(hlog.NewHandler(log.Logger), hlog.URLHandler("path"), hlog.MethodHandler("method"), hlog.RemoteIPHandler("remote"), AccessLog)
+	tracing := partial(RequestCounter, RequestLatency)
+
 	// set up an HTTP server
-	http.Handle("/joke", chain(FetchJoke(), RequestCounter, RequestLatency))
-	http.Handle("/health", HealthEndpoint())
-	http.Handle("/metrics", promhttp.Handler())
+	mux := http.NewServeMux()
+	mux.Handle("/joke", chain(FetchJoke(), logging, tracing))
+	mux.Handle("/random", chain(RandomNumber(), logging, tracing))
+	mux.Handle("/health", HealthEndpoint())
+	mux.Handle("/metrics", promhttp.Handler())
 
 	addr := ":8080"
 	if port := os.Getenv("PORT"); port != "" {
 		addr = fmt.Sprintf(":%s", port)
 	}
 
-	log.Printf("starting server on %s", addr)
-	server := &http.Server{Addr: addr}
+	log.Info().Msgf("starting server on %s", addr)
+	server := &http.Server{Addr: addr, Handler: mux, BaseContext: func(net.Listener) context.Context { return ctx }}
 
 	go func() {
 		if err := server.ListenAndServe(); !errors.Is(err, http.ErrServerClosed) {
-			log.Fatalf("server failed to start: %v", err)
+			log.Fatal().Msgf("server failed to start: %v", err)
 		}
 	}()
 
-	c := make(chan os.Signal, 1)
-	signal.Notify(c, syscall.SIGTERM, syscall.SIGINT)
-	<-c
-}
-
-func chain(handler http.Handler, middlewares ...func(http.Handler) http.Handler) http.Handler {
-	for _, middleware := range middlewares {
-		handler = middleware(handler)
-	}
-
-	return handler
+	<-ctx.Done() // wait for signal to terminate
 }
