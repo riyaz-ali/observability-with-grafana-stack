@@ -71,15 +71,26 @@ services:
 
   # Grafana Alloy Service (Agent for Logs and Metrics)
   alloy:
-      image: grafana/alloy:v1.8.3
-      container_name: alloy
-      volumes:
-        - ./scripts/config.alloy:/etc/config.alloy
-        - /var/lib/docker/containers:/var/lib/docker/containers:ro
-        - /var/run/docker.sock:/var/run/docker.sock:ro
-      command: run /etc/config.alloy --server.http.listen-addr=0.0.0.0:12345
-      networks:
-        - grafana-net
-      depends_on:
-        - loki
-      restart: unless-stopped
+    image: grafana/alloy:v1.8.3
+    container_name: alloy
+    volumes:
+      - ./scripts/config.alloy:/etc/config.alloy
+      - /var/lib/docker/containers:/var/lib/docker/containers:ro
+      - /var/run/docker.sock:/var/run/docker.sock:ro
+    command: run /etc/config.alloy --server.http.listen-addr=0.0.0.0:12345
+    networks:
+      - grafana-net
+    depends_on:
+      - loki
+    restart: unless-stopped
+
+  jokes:
+    build:
+      context: .
+      dockerfile: Dockerfile
+    container_name: jokes
+    ports:
+      - "8080:8080"
+    networks:
+      - grafana-net
+    restart: unless-stopped
