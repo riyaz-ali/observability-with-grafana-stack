@@ -1,0 +1,29 @@
+server:
+  http_listen_port: 3200
+
+# Distributors receive spans and forward them to the appropriate ingesters.
+# The following configuration enables OpenTelemetry receiver
+distributor:
+  receivers:
+    otlp:
+      protocols:
+        grpc:
+        http:
+
+# The ingester is responsible for batching up traces and pushing them to TempoDB.
+ingester:
+  max_block_duration: 5m
+
+# Compactors stream blocks from the storage backend, combine them and write them back.
+compactor:
+  compaction:
+    compaction_window: 1h
+
+# Storage block configures TempoDB. See https://grafana.com/docs/tempo/latest/configuration/#storage
+storage:
+  trace:
+    backend: local
+    local: # configuration block for local storage
+      path: /tmp/tempo/blocks
+    wal:   # configuration block for the Write Ahead Log (WAL)
+      path: /tmp/tempo/wal

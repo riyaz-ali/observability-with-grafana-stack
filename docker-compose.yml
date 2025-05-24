@@ -1,0 +1,85 @@
+version: '3.8'
+
+networks:
+  grafana-net:
+    driver: bridge
+
+volumes:
+  grafana_data:
+  prometheus_data:
+  loki_data:
+  tempo_data:
+
+services:
+  # Grafana dashboard service accessible over port 3030
+  grafana:
+    image: grafana/grafana:latest
+    container_name: grafana
+    ports:
+      - "3030:3000"
+    volumes:
+      - grafana_data:/var/lib/grafana
+    networks:
+      - grafana-net
+    depends_on:
+      - prometheus
+      - loki
+      - tempo
+    environment:
+      - GF_AUTH_ANONYMOUS_ENABLED=true
+      - GF_AUTH_ANONYMOUS_ORG_ROLE=Admin # Allows anonymous users to have Admin role
+    restart: unless-stopped
+
+  # Prometheus monitoring service
+  prometheus:
+    image: prom/prometheus:latest
+    container_name: prometheus
+    volumes:
+      - ./scripts/prometheus.yml:/etc/prometheus/prometheus.yml
+      - prometheus_data:/prometheus
+    command:
+      - '--config.file=/etc/prometheus/prometheus.yml'
+      - '--storage.tsdb.path=/prometheus'
+    networks:
+      - grafana-net
+    restart: unless-stopped
+
+  # Loki Service (Log Aggregation)
+  loki:
+    image: grafana/loki:3.5
+    container_name: loki
+    volumes:
+      - ./scripts/loki.yml:/etc/loki/config.yaml
+      - loki_data:/loki
+    command: -config.file=/etc/loki/config.yaml
+    networks:
+      - grafana-net
+    restart: unless-stopped
+
+  # Tempo Service (Distributed Tracing)
+  tempo:
+    image: grafana/tempo:2.7.0
+    container_name: tempo
+    user: root # to temporarily fix permission issues; do not use on prod
+    volumes:
+      - ./scripts/tempo.yml:/etc/tempo/config.yaml
+      - tempo_data:/tmp/tempo
+    command: -config.file=/etc/tempo/config.yaml
+    networks:
+      - grafana-net
+    restart: unless-stopped
+
+  # Grafana Alloy Service (Agent for Logs and Metrics)
+  alloy:
+      image: grafana/alloy:v1.8.3
+      container_name: alloy
+      volumes:
+        - ./scripts/config.alloy:/etc/config.alloy
+        - /var/lib/docker/containers:/var/lib/docker/containers:ro
+        - /var/run/docker.sock:/var/run/docker.sock:ro
+      command: run /etc/config.alloy --server.http.listen-addr=0.0.0.0:12345
+      networks:
+        - grafana-net
+      depends_on:
+        - loki
+      restart: unless-stopped

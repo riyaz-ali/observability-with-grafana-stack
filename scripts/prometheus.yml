@@ -1,0 +1,9 @@
+global:
+  scrape_interval: 15s # How frequently to scrape targets.
+  evaluation_interval: 15s # How frequently to evaluate rules.
+
+scrape_configs:
+  # Job 'prometheus' scrapes metrics from prometheus instance itself
+  - job_name: 'prometheus'
+    static_configs:
+      - targets: ['localhost:9090']

@@ -1,0 +1,44 @@
+// This configuration uses Grafana Alloy's native syntax (based on CUE)
+// to scrape Docker container logs and forward them to Loki.
+
+// discover all containers running on the docker instance
+discovery.docker "containers" {
+  host = "unix:///var/run/docker.sock"
+}
+
+// relabel configuration to annotate entry with service_name, instance_id etc.
+discovery.relabel "add_metadata" {
+  targets = []
+
+  rule {
+    source_labels = ["__meta_docker_container_label_com_docker_compose_service"]
+    target_label  = "service_name"
+  }
+
+  rule {
+    source_labels = ["__meta_docker_container_label_com_docker_compose_project"]
+    target_label  = "project"
+  }
+
+  rule {
+    source_labels = ["__meta_docker_container_id"]
+    target_label  = "instance_id"
+  }
+}
+
+// define a loki.source.docker component to scrape logs from discovered docker containers.
+loki.source.docker "docker_logs" {
+  host = "unix:///var/run/docker.sock"
+  targets = discovery.docker.containers.targets
+
+  relabel_rules = discovery.relabel.add_metadata.rules
+
+  forward_to = [loki.write.default.receiver] // connect the output to relabel configuration below
+}
+
+// define a loki.write component to send the processed logs to the Loki instance.
+loki.write "default" {
+  endpoint {
+    url = "http://loki:3100/loki/api/v1/push" // Loki push endpoint
+  }
+}
